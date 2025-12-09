@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: blooket-join-proxy
+    name: blooket-clean-proxy
     env: node
     buildCommand: npm install
     startCommand: npm start
