@@ -61,7 +61,7 @@ app.get('/', async (req, res) => {
         const gameCode = req.query.code;
         const targetUrl = gameCode 
             ? `https://www.blooket.com/join?code=${gameCode}`
-            : 'https://www.blooket.com/join';
+            : 'https://www.gimkit.com/join';
         
         console.log('Proxying:', targetUrl);
         
