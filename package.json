@@ -1,7 +1,7 @@
 {
-  "name": "blooket-proxy",
+  "name": "blooket-minimal-proxy",
   "version": "1.0.0",
-  "description": "Blooket join page proxy with JS injection",
+  "description": "Minimal Blooket proxy",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
