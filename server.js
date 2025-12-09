@@ -1,113 +1,86 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Custom JavaScript to inject
-const CUSTOM_JS = `
-// Blooket Join Page Enhancer
-console.log("Blooket Proxy Loaded!");
+// ======================
+// CONFIGURATION
+// ======================
 
-// Auto-fill game code if in URL
-const urlParams = new URLSearchParams(window.location.search);
-const gameCode = urlParams.get('code');
-if (gameCode) {
-    setTimeout(() => {
-        const codeInput = document.querySelector('input[type="text"]');
-        if (codeInput) {
-            codeInput.value = gameCode;
-            console.log('Auto-filled game code:', gameCode);
-            
-            // Trigger input event
-            codeInput.dispatchEvent(new Event('input', { bubbles: true }));
+// Set to true to enable custom JS injection
+const ENABLE_CUSTOM_JS = false;
+
+// Path to your custom JavaScript file (if enabled)
+const CUSTOM_JS_PATH = './custom.js';
+
+// ======================
+// PROXY CORE
+// ======================
+
+// Helper to load custom JS if enabled
+function getCustomJS() {
+    if (!ENABLE_CUSTOM_JS) return '';
+    
+    try {
+        if (fs.existsSync(CUSTOM_JS_PATH)) {
+            const jsContent = fs.readFileSync(CUSTOM_JS_PATH, 'utf8');
+            return `<script>${jsContent}</script>`;
         }
-    }, 1000);
+    } catch (error) {
+        console.error('Error loading custom JS:', error);
+    }
+    return '';
 }
 
-// Add custom styling
-const style = document.createElement('style');
-style.textContent = \`
-    .proxy-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        text-align: center;
-    }
-    .proxy-notice {
-        background: #f0f9ff;
-        border: 2px solid #3b82f6;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 10px 0;
-    }
-\`;
-document.head.appendChild(style);
-
-// Add custom header
-document.addEventListener('DOMContentLoaded', function() {
-    const header = document.createElement('div');
-    header.className = 'proxy-header';
-    header.innerHTML = \`
-        <h2>🎮 Blooket Join Portal</h2>
-        <p>Enter your game code below to join!</p>
-        <div class="proxy-notice">
-            <small>Powered by Educational Proxy</small>
-        </div>
-    \`;
+// Helper function to fetch with headers
+async function fetchWithHeaders(url) {
+    const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0'
+    };
     
-    // Insert at top of body
-    const body = document.querySelector('body');
-    if (body) {
-        body.insertBefore(header, body.firstChild);
-    }
-});
+    return await fetch(url, { headers });
+}
 
-// Add quick code buttons
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        const container = document.querySelector('.proxy-header') || document.body;
-        const buttonDiv = document.createElement('div');
-        buttonDiv.style.margin = '10px 0';
-        buttonDiv.style.textAlign = 'center';
-        
-        buttonDiv.innerHTML = \`
-            <p><strong>Quick Test Codes:</strong></p>
-            <button onclick="document.querySelector('input[type=\\\\"text\\\\"]').value='123456'">Test Code 1: 123456</button>
-            <button onclick="document.querySelector('input[type=\\\\"text\\\\"]').value='789012'">Test Code 2: 789012</button>
-        \`;
-        
-        container.appendChild(buttonDiv);
-    }, 1500);
-});
-`;
-
-// Main proxy route
+// Main proxy route for Blooket
 app.get('/', async (req, res) => {
     try {
         const gameCode = req.query.code;
-        const blooketUrl = gameCode 
+        const targetUrl = gameCode 
             ? `https://www.blooket.com/join?code=${gameCode}`
             : 'https://www.blooket.com/join';
         
-        console.log('Fetching:', blooketUrl);
+        console.log('Proxying:', targetUrl);
         
-        // Fetch the Blooket page
-        const response = await fetch(blooketUrl);
+        // Fetch the page
+        const response = await fetchWithHeaders(targetUrl);
         const html = await response.text();
         
-        // Parse HTML with Cheerio
+        // Parse with Cheerio
         const $ = cheerio.load(html);
         
-        // Remove Blooket's CSP meta tag (allows our JS to run)
+        // Remove Blooket's CSP meta tag
         $('meta[http-equiv="Content-Security-Policy"]').remove();
         
-        // Inject our custom JavaScript
-        $('head').append(`<script>${CUSTOM_JS}</script>`);
+        // Inject custom JS if enabled
+        if (ENABLE_CUSTOM_JS) {
+            $('head').append(getCustomJS());
+        }
         
-        // Fix relative URLs
+        // Fix all relative URLs to absolute
         $('a[href^="/"]').each((i, elem) => {
             const href = $(elem).attr('href');
             $(elem).attr('href', `/proxy${href}`);
@@ -123,36 +96,45 @@ app.get('/', async (req, res) => {
             $(elem).attr('src', `https://www.blooket.com${src}`);
         });
         
-        // Send modified page
+        $('img[src^="/"]').each((i, elem) => {
+            const src = $(elem).attr('src');
+            $(elem).attr('src', `https://www.blooket.com${src}`);
+        });
+        
+        // Send the modified page
         res.send($.html());
         
     } catch (error) {
         console.error('Proxy Error:', error);
         res.status(500).send(`
+            <!DOCTYPE html>
             <html>
-                <body style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h1>⚠️ Proxy Error</h1>
-                    <p>Unable to load Blooket. Try again in a moment.</p>
-                    <p><a href="/">Return to join page</a></p>
-                    <p>Error details: ${error.message}</p>
-                </body>
+            <head><title>Proxy Error</title></head>
+            <body style="font-family: Arial; padding: 20px;">
+                <h1>Proxy Error</h1>
+                <p>Failed to load Blooket. Please try again.</p>
+                <p><a href="/">Retry</a></p>
+            </body>
             </html>
         `);
     }
 });
 
-// Additional routes for other Blooket pages
+// Proxy for other Blooket paths
 app.get('/proxy/*', async (req, res) => {
     try {
         const path = req.path.replace('/proxy', '');
-        const blooketUrl = `https://www.blooket.com${path}`;
+        const targetUrl = `https://www.blooket.com${path}`;
         
-        const response = await fetch(blooketUrl);
+        const response = await fetchWithHeaders(targetUrl);
         const html = await response.text();
         
-        // Modify HTML similarly
         const $ = cheerio.load(html);
-        $('head').append(`<script>${CUSTOM_JS}</script>`);
+        $('meta[http-equiv="Content-Security-Policy"]').remove();
+        
+        if (ENABLE_CUSTOM_JS) {
+            $('head').append(getCustomJS());
+        }
         
         res.send($.html());
     } catch (error) {
@@ -160,14 +142,33 @@ app.get('/proxy/*', async (req, res) => {
     }
 });
 
-// Health check endpoint for Render
+// Static route for custom.js (optional)
+app.get('/custom.js', (req, res) => {
+    if (fs.existsSync(CUSTOM_JS_PATH)) {
+        res.type('js').sendFile(path.resolve(CUSTOM_JS_PATH));
+    } else {
+        res.status(404).send('// Custom JS file not found');
+    }
+});
+
+// Health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    res.json({ 
+        status: 'ok', 
+        time: new Date().toISOString(),
+        config: {
+            customJsEnabled: ENABLE_CUSTOM_JS,
+            customJsPath: CUSTOM_JS_PATH
+        }
+    });
 });
 
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Blooket Proxy running on port ${PORT}`);
-    console.log(`📚 Access at: http://localhost:${PORT}`);
-    console.log(`🎮 Example with game code: http://localhost:${PORT}?code=123456`);
+    console.log(`🌐 Access: http://localhost:${PORT}`);
+    console.log(`⚙️  Custom JS: ${ENABLE_CUSTOM_JS ? 'ENABLED' : 'DISABLED'}`);
+    if (ENABLE_CUSTOM_JS) {
+        console.log(`📝 Custom JS file: ${CUSTOM_JS_PATH}`);
+    }
 });
